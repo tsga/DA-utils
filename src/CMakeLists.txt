@@ -3,6 +3,7 @@ if ( oops_FOUND )
   message( STATUS "Building tools that link to OOPS/JEDI" )
   add_subdirectory( ioda-extract )
   add_subdirectory( ioda-stats )
+  add_subdirectory( ioda-summary )
   add_subdirectory( ioda-dump )
   if( "$ENV{BUILD_IODA_CONVERTERS}" STREQUAL "NO" )   #don't add this if iodaconv is being built
     add_subdirectory(gsi_varbc)
