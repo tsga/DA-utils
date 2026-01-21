@@ -77,8 +77,8 @@ conv_bufrtypes = {
     "rass": [126],
     "sfcship": [180, 183],
     "sfc": [181, 187],
-    "gps": [3, 4, 5, 41, 42, 43, 44, 66, 265, 266, 267, 268, 269, 421, 440, \
-            722, 723, 740, 741, 742, 743, 744, 745, \
+    "gps": [3, 4, 5, 41, 42, 43, 44, 66, 265, 266, 267, 268, 269, 421, 440,
+            722, 723, 740, 741, 742, 743, 744, 745,
             750, 751, 752, 753, 754, 755, 786, 803, 804, 820, 821, 825],
     "sst": [181, 182, 183, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202],
     # 132 are dropsondes
@@ -691,21 +691,14 @@ gmi_chan_dep_loc_vars = {
     'Scan_Angle',
 }
 
-DimDict = {
-}
-
-VarDims = {
-}
-
-globalAttrs = {
-    'converter': os.path.basename(__file__),
-}
-
 
 class BaseGSI:
     EPSILON = 9e-12
     FLOAT_FILL = nc.default_fillvals['f4']
     INT_FILL = nc.default_fillvals['i4']
+
+    # Note: DimDict, VarDims, and globalAttrs are initialized per-instance
+    # in __init__ to avoid sharing mutable state between instances
 
     @staticmethod
     def _as_array(netcdf_var):
@@ -733,6 +726,13 @@ class Conv(BaseGSI):
       nobs        - number of observations
     """
     def __init__(self, filename):
+        # Initialize instance-specific mutable attributes
+        self.DimDict = {}
+        self.VarDims = {}
+        self.globalAttrs = {
+            'converter': os.path.basename(__file__),
+        }
+
         self.filename = filename
         splitfname = self.filename.split('/')[-1].split('_')
         if 'conv' in splitfname:
@@ -779,13 +779,13 @@ class Conv(BaseGSI):
         for v in self.obsvars:
             for p in platforms:
                 outname = OutDir + '/' + p + '_' + v + '_geoval_' + \
-                    self.validtime.strftime("%Y%m%d%H") + '.nc4'
+                    self.validtime.strftime("%Y%m%d%H") + '.nc'
                 if (v == 'sst'):
                     outname = OutDir + '/' + v + '_geoval_' + \
-                        self.validtime.strftime("%Y%m%d%H") + '.nc4'
+                        self.validtime.strftime("%Y%m%d%H") + '.nc'
                 if (p == 'windprof' or p == 'satwind' or p == 'scatwind' or p == 'vadwind' or p == 'pibal'):
                     outname = OutDir + '/' + p + '_geoval_' + \
-                        self.validtime.strftime("%Y%m%d%H") + '.nc4'
+                        self.validtime.strftime("%Y%m%d%H") + '.nc'
                 if not clobber:
                     if (os.path.exists(outname)):
                         print("File exists. Skipping and not overwriting:%s" % outname)
@@ -911,13 +911,16 @@ class Conv(BaseGSI):
             for p in platforms:
                 # set up a NcWriter class
                 outname = OutDir + '/' + p + '_' + v + diagtype + \
-                    self.validtime.strftime("%Y%m%d%H") + '.nc4'
+                    self.validtime.strftime("%Y%m%d%H") + '.gsi.nc'
                 if (v == 'sst'):
                     outname = OutDir + '/' + v + diagtype + \
-                        self.validtime.strftime("%Y%m%d%H") + '.nc4'
+                        self.validtime.strftime("%Y%m%d%H") + '.gsi.nc'
                 if (p == 'windprof' or p == 'satwind' or p == 'scatwind' or p == 'vadwind' or p == 'pibal'):
                     outname = OutDir + '/' + p + diagtype + \
-                        self.validtime.strftime("%Y%m%d%H") + '.nc4'
+                        self.validtime.strftime("%Y%m%d%H") + '.gsi.nc'
+                if (p == 'gps'):
+                    outname = OutDir + '/' + 'gnssro' + diagtype + \
+                        self.validtime.strftime("%Y%m%d%H") + '.gsi.nc'
                 if not clobber:
                     if (os.path.exists(outname)):
                         print("File exists. Skipping and not overwriting: %s" % outname)
@@ -953,7 +956,7 @@ class Conv(BaseGSI):
                     varDict[value]['valKey'] = value, iconv.OvalName()
                     varDict[value]['errKey'] = value, iconv.OerrName()
                     varDict[value]['qcKey'] = value, iconv.OqcName()
-                    VarDims[value] = ['Location']
+                    self.VarDims[value] = ['Location']
                     varAttrs[varDict[value]['valKey']]['units'] = units_values[value]
                     varAttrs[varDict[value]['errKey']]['units'] = units_values[value]
                     varAttrs[varDict[value]['valKey']]['coordinates'] = 'longitude latitude'
@@ -991,7 +994,9 @@ class Conv(BaseGSI):
                         # All original observation errors are saved as "Error_Input". J.Jin 10/24/2022.
                         obserr = self.var('Error_Input')[idx]
                     except BaseException:
-                        obserr = self.var('Errinv_Input')[idx]
+                        #obserr = self.var('Errinv_Input')[idx]
+                        # for direct use of GSI errors and QC, let us save the final errors instead
+                        obserr = self.var('Errinv_Final')[idx]
                         mask = obserr < self.EPSILON
                         obserr[~mask] = 1.0 / obserr[~mask]
                         # below is a temporary hack until missing ObsError support returns to IODA/UFO
@@ -1089,7 +1094,7 @@ class Conv(BaseGSI):
                             iodavar = 'GsiBc'
                             gvname = outvars[o], iodavar
                             outdata[gvname] = np.reshape(tmp, np.shape(self.df.variables['Observation']))
-                            VarDims[gvname] = ['Location']
+                            self.VarDims[gvname] = ['Location']
                         else:
                             print(f' ... can not add total bias missing {key1} or {key2} from input file')
 
@@ -1163,10 +1168,10 @@ class Conv(BaseGSI):
                         outdata[(test_mdata_name, 'TestReference')] = tmp
 
                 # writer metadata
-                DimDict['Location'] = len(StationIDs)
+                self.DimDict['Location'] = len(StationIDs)
 
-                writer = iconv.IodaWriter(outname, LocKeyList, DimDict)
-                writer.BuildIoda(outdata, VarDims, varAttrs, globalAttrs)
+                writer = iconv.IodaWriter(outname, LocKeyList, self.DimDict)
+                writer.BuildIoda(outdata, self.VarDims, varAttrs, self.globalAttrs)
 
                 print("Processed %d Conventional obs processed to: %s" % (len(obsdata), outname))
 
@@ -1223,6 +1228,13 @@ class Radiances(BaseGSI):
     """
 
     def __init__(self, filename):
+        # Initialize instance-specific mutable attributes
+        self.DimDict = {}
+        self.VarDims = {}
+        self.globalAttrs = {
+            'converter': os.path.basename(__file__),
+        }
+
         self.filename = filename
         splitfname = self.filename.split('/')[-1].split('_')
         i = False
@@ -1258,7 +1270,7 @@ class Radiances(BaseGSI):
         # ioda_conv_ncio or equivalent to handle the format
         # set up output file
         outname = OutDir + '/' + self.sensor + '_' + self.satellite + \
-            '_geoval_' + self.validtime.strftime("%Y%m%d%H") + '.nc4'
+            '_geoval_' + self.validtime.strftime("%Y%m%d%H") + '.nc'
         if not clobber:
             if (os.path.exists(outname)):
                 print("File exists. Skipping and not overwriting:")
@@ -1327,7 +1339,7 @@ class Radiances(BaseGSI):
 
         # set up output file
         outname = OutDir + '/' + self.sensor + '_' + self.satellite + \
-            '_obsdiag_' + self.validtime.strftime("%Y%m%d%H") + '.nc4'
+            '_obsdiag_' + self.validtime.strftime("%Y%m%d%H") + '.nc'
         if not clobber:
             if (os.path.exists(outname)):
                 print("File exists. Skipping and not overwriting: %s" % outname)
@@ -1421,8 +1433,8 @@ class Radiances(BaseGSI):
         else:
             diagtype = "_obs_"
             varsuffix = ""
-        outname = OutDir + '/' + self.sensor + '_' + self.satellite + \
-            diagtype + self.validtime.strftime("%Y%m%d%H") + '.nc4'
+        outname = OutDir + '/radiance_' + self.sensor + '_' + self.satellite + \
+            diagtype + self.validtime.strftime("%Y%m%d%H") + '.gsi.nc'
         if not clobber:
             if (os.path.exists(outname)):
                 print("File exists. Skipping and not overwriting: %s" % outname)
@@ -1470,7 +1482,7 @@ class Radiances(BaseGSI):
         varDict[value]['valKey'] = value, iconv.OvalName()
         varDict[value]['errKey'] = value, iconv.OerrName()
         varDict[value]['qcKey'] = value, iconv.OqcName()
-        VarDims[value] = ['Location', 'Channel']
+        self.VarDims[value] = ['Location', 'Channel']
         varAttrs[varDict[value]['valKey']]['units'] = 'K'
         varAttrs[varDict[value]['errKey']]['units'] = 'K'
 #       varAttrs[varDict[value]['qcKey']]['units'] = 'unitless'
@@ -1500,14 +1512,19 @@ class Radiances(BaseGSI):
             for vbc in valuebc:
                 varDict[vbc]['bctKey'] = vbc, iconv.ObiastermName()
                 varDict[vbc]['bcpKey'] = vbc, iconv.ObiaspredName()
-                VarDims[(vbc, 'MetaData')] = ['Location']
+                self.VarDims[(vbc, 'MetaData')] = ['Location']
                 ibc += 1
         obsdata = self.var('Observation')
         try:
             obserr = self.var('Input_Observation_Error').astype(np.float32)
         except IndexError:
-            # obserr = 1./self.var('Inverse_Observation_Error')
-            obserr = np.repeat(self.var('error_variance').astype(np.float32), nlocs, axis=0)
+            inv_obserr = self.var('Inverse_Observation_Error').astype(np.float32)
+            # Safely invert inverse observation error, avoiding division by zero and infinities
+            obserr = np.full(inv_obserr.shape, self.FLOAT_FILL, dtype=np.float32)
+            valid_mask = np.isfinite(inv_obserr) & (np.abs(inv_obserr) > 0.0)
+            obserr[valid_mask] = 1.0 / inv_obserr[valid_mask]
+            # use final obs error directly from GSI
+            #obserr = np.repeat(self.var('error_variance').astype(np.float32), nlocs, axis=0)
         # obserr[:] = self.FLOAT_FILL  # commented this line so the obserr stores initial obs error
         obsqc = self.var('QC_Flag').astype(np.int32)
         if (ObsBias):
@@ -1577,6 +1594,11 @@ class Radiances(BaseGSI):
                 # outdata[(loc_mdata_name, 'MetaData')] = tmp
                 # if loc_mdata_name in units_values.keys():
                 #     varAttrs[(loc_mdata_name, 'MetaData')]['units'] = units_values[loc_mdata_name]
+            elif self.sensor == "ssmis" and lvar == "Sat_Azimuth_Angle":
+                tmp = self.var(lvar)[::nchans].astype(np.int32)
+                tmp[tmp > 4e8] = self.INT_FILL
+                outdata[("satelliteAscendingFlag", 'MetaData')] = tmp
+                varAttrs[("satelliteAscendingFlag", 'MetaData')]['_FillValue'] = self.INT_FILL
             else:
                 if dtype == 'integer':
                     tmp = self.var(lvar)[::nchans].astype(np.int32)
@@ -1598,7 +1620,7 @@ class Radiances(BaseGSI):
                 tmp = self.var(tvar)[:]
                 tmp[tmp > 4e8] = self.FLOAT_FILL
                 outdata[test_mdata_name] = np.reshape(tmp, (nlocs, nchans))
-                VarDims[test_mdata_name] = ['Location', 'Channel']
+                self.VarDims[test_mdata_name] = ['Location', 'Channel']
                 if test_fields_with_channels_[tvar][0] in units_values.keys():
                     varAttrs[test_mdata_name]['units'] = units_values[test_fields_with_channels_[tvar][0]]
 
@@ -1607,7 +1629,7 @@ class Radiances(BaseGSI):
                 tmp = self.var(tvar)[::nchans]
                 tmp[tmp > 4e8] = self.FLOAT_FILL
                 outdata[test_mdata_name] = tmp
-                VarDims[test_mdata_name] = ['Location']
+                self.VarDims[test_mdata_name] = ['Location']
                 if test_fields_[tvar][0] in units_values.keys():
                     if tvar != 'scat_amsua':
                         varAttrs[test_mdata_name]['units'] = units_values[test_fields_[tvar][0]]
@@ -1655,7 +1677,7 @@ class Radiances(BaseGSI):
                     tmp[tmp > 4e8] = self.FLOAT_FILL
                 gvname = "brightnessTemperature", iodavar + varsuffix
                 outdata[gvname] = np.reshape(tmp, (nlocs, nchans))
-                VarDims[gvname] = ['Location', 'Channel']
+                self.VarDims[gvname] = ['Location', 'Channel']
 
         if (TotalBias):
             # compute final bias correction
@@ -1666,7 +1688,7 @@ class Radiances(BaseGSI):
                 iodavar = 'GsiBc' + varsuffix
                 gvname = "brightnessTemperature", iodavar
                 outdata[gvname] = np.reshape(tmp, (nlocs, nchans))
-                VarDims[gvname] = ['Location', 'Channel']
+                self.VarDims[gvname] = ['Location', 'Channel']
             else:
                 print(f' ... can not add total bias missing {key1} or {key2} from input file')
 
@@ -1741,7 +1763,7 @@ class Radiances(BaseGSI):
                     # Wavenumber unit is cm-1 in CRTM/GSI
                     if value2 == 'sensorCentralWavenumber':
                         outdata[(value2, 'MetaData')] = outdata[(value2, 'MetaData')]*1.e2
-                VarDims[(value2, 'MetaData')] = ['Channel']
+                self.VarDims[(value2, 'MetaData')] = ['Channel']
                 if value2 in units_values.keys():
                     varAttrs[(value2, 'MetaData')]['units'] = units_values[value2]
             except IndexError:
@@ -1749,11 +1771,11 @@ class Radiances(BaseGSI):
 
         # set dimension lengths in the writer since we are bypassing
         # ExtractObsData
-        DimDict['Location'] = nlocs
-        DimDict['Channel'] = chanlist
+        self.DimDict['Location'] = nlocs
+        self.DimDict['Channel'] = chanlist
 
-        writer = iconv.IodaWriter(outname, LocKeyList, DimDict)
-        writer.BuildIoda(outdata, VarDims, varAttrs, globalAttrs)
+        writer = iconv.IodaWriter(outname, LocKeyList, self.DimDict)
+        writer.BuildIoda(outdata, self.VarDims, varAttrs, self.globalAttrs)
 
         print("Satellite radiance obs processed, wrote to: %s" % outname)
 
@@ -1774,6 +1796,13 @@ class Ozone(BaseGSI):
 
     """
     def __init__(self, filename):
+        # Initialize instance-specific mutable attributes
+        self.DimDict = {}
+        self.VarDims = {}
+        self.globalAttrs = {
+            'converter': os.path.basename(__file__),
+        }
+
         self.filename = filename
         splitfname = self.filename.split('/')[-1].split('_')
         i = False
@@ -1797,6 +1826,9 @@ class Ozone(BaseGSI):
         self.nobs = len(df.dimensions['nobs'])
         self.df = df
 
+    def close(self):
+        self.df.close()
+
     def toGeovals(self, OutDir, clobber=True):
         """ toGeovals(OutDir,clobber=True)
         if model state fields are in the GSI diag file, create
@@ -1806,7 +1838,11 @@ class Ozone(BaseGSI):
         # ioda_conv_ncio or equivalent to handle the format
 
         # set up output file
-        outname = OutDir+'/'+self.sensor+'_'+self.satellite+'_geoval_'+self.validtime.strftime("%Y%m%d%H")+'.nc4'
+        # Map sensor names for output file naming
+        sensor_out = self.sensor
+        if self.sensor == 'ompstc8':
+            sensor_out = 'ompstc'
+        outname = OutDir+'/'+sensor_out+'_'+self.satellite+'_geoval_'+self.validtime.strftime("%Y%m%d%H")+'.nc'
         if not clobber:
             if (os.path.exists(outname)):
                 print("File exists. Skipping and not overwriting: %s" % outname)
@@ -1874,14 +1910,18 @@ class Ozone(BaseGSI):
         else:
             diagtype = "_obs_"
             varsuffix = ""
-        outname = OutDir+'/'+self.sensor+'_'+self.satellite+diagtype+self.validtime.strftime("%Y%m%d%H")+'.nc4'
+        # Map sensor names for output file naming
+        sensor_out = self.sensor
+        if self.sensor == 'ompstc8':
+            sensor_out = 'ompstc'
+        outname = OutDir + '/retrieval_ozone_' + sensor_out + '_' + self.satellite + diagtype + self.validtime.strftime("%Y%m%d%H") + '.gsi.nc'
         if not clobber:
             if (os.path.exists(outname)):
                 print("File exists. Skipping and not overwriting: %s" % outname)
                 return
         LocKeyList = []
         LocVars = []
-        globalAttrs = {}
+        self.globalAttrs = {}
         varDict = defaultdict(lambda: defaultdict(dict))
         outdata = defaultdict(lambda: DefaultOrderedDict(OrderedDict))
         varAttrs = DefaultOrderedDict(lambda: DefaultOrderedDict(dict))
@@ -1895,10 +1935,12 @@ class Ozone(BaseGSI):
         vname = "ozoneProfile"
         if (self.sensor in oz_lay_sensors):
             vname = "ozoneTotal"
+        if (self.sensor == 'ompsnp'):
+            vname = "ozoneLayer"
         varDict[vname]['valKey'] = vname, iconv.OvalName()
         varDict[vname]['errKey'] = vname, iconv.OerrName()
         varDict[vname]['qcKey'] = vname, iconv.OqcName()
-        VarDims[vname] = ['Location']
+        self.VarDims[vname] = ['Location']
         varAttrs[varDict[vname]['valKey']]['units'] = units_values[vname]
         varAttrs[varDict[vname]['errKey']]['units'] = units_values[vname]
         # varAttrs[varDict[vname]['qcKey']]['units'] = 'unitless'
@@ -1908,10 +1950,12 @@ class Ozone(BaseGSI):
 
         obsdata = self.var('Observation')
         try:
-            tmp = self.var('Input_Observation_Error')
+            tmp = 1./self.var('Inverse_Observation_Error')
         except IndexError:
-            # tmp = 1./self.var('Inverse_Observation_Error')
-            tmp = np.repeat(self.var('error_variance'), nlocs, axis=0)
+            try:
+                tmp = self.var('Input_Observation_Error')
+            except IndexError:
+                tmp = np.repeat(self.var('error_variance'), nlocs, axis=0)
         tmp[tmp < self.EPSILON] = 0
         obserr = tmp
         obserr[np.isinf(obserr)] = self.FLOAT_FILL
@@ -1931,7 +1975,23 @@ class Ozone(BaseGSI):
                 outdata[(loc_mdata_name, 'MetaData')] = tmp
                 if loc_mdata_name in units_values.keys():
                     varAttrs[(loc_mdata_name, 'MetaData')]['units'] = units_values[loc_mdata_name]
-            VarDims[(loc_mdata_name, 'MetaData')] = ['Location']
+            self.VarDims[(loc_mdata_name, 'MetaData')] = ['Location']
+
+        # For ompsnp sensor, create 2D pressureVertice variable from bottom and top level pressures
+        if self.sensor == 'ompsnp':
+            # Check if both pressure variables exist in the output data
+            if ('bottom_level_pressure', 'MetaData') in outdata and ('top_level_pressure', 'MetaData') in outdata:
+                # Create 2D array with dimensions (Location, 2)
+                bottom_pressure = outdata[('bottom_level_pressure', 'MetaData')]
+                top_pressure = outdata[('top_level_pressure', 'MetaData')]
+                # Stack them as columns: first column is top, second is bottom
+                pressure_vertices = np.column_stack([top_pressure, bottom_pressure])
+                outdata[('pressureVertice', 'RetrievalAncillaryData')] = pressure_vertices
+                self.VarDims[('pressureVertice', 'RetrievalAncillaryData')] = ['Location', 'Vertices']
+                varAttrs[('pressureVertice', 'RetrievalAncillaryData')]['units'] = 'Pa'
+                varAttrs[('pressureVertice', 'RetrievalAncillaryData')]['_FillValue'] = self.FLOAT_FILL
+                # Add Vertices dimension to DimDict
+                self.DimDict['Vertices'] = 2
 
         for gsivar, iodavar in gsi_add_vars.items():
             # some special actions need to be taken depending on var name...
@@ -1966,7 +2026,7 @@ class Ozone(BaseGSI):
                     iodavar = 'GsiBc' + varsuffix
                     gvname = vname, iodavar
                     outdata[gvname] = np.reshape(tmp, (nlocs))
-                    VarDims[gvname] = ['Location']
+                    self.VarDims[gvname] = ['Location']
                 else:
                     print(f' ... can not add total bias missing {key1} or {key2} from input file')
 
@@ -1984,10 +2044,10 @@ class Ozone(BaseGSI):
 
         # set dimension lengths in the writer since we are bypassing
         # ExtractObsData
-        DimDict['Location'] = nlocs
+        self.DimDict['Location'] = nlocs
 
-        writer = iconv.IodaWriter(outname, LocKeyList, DimDict)
-        writer.BuildIoda(outdata, VarDims, varAttrs, globalAttrs)
+        writer = iconv.IodaWriter(outname, LocKeyList, self.DimDict)
+        writer.BuildIoda(outdata, self.VarDims, varAttrs, self.globalAttrs)
         print("Ozone obs processed, wrote to: %s" % outname)
 
 
@@ -2006,6 +2066,13 @@ class Radar(BaseGSI):
 
     """
     def __init__(self, filename):
+        # Initialize instance-specific mutable attributes
+        self.DimDict = {}
+        self.VarDims = {}
+        self.globalAttrs = {
+            'converter': os.path.basename(__file__),
+        }
+
         self.filename = filename
         splitfname = self.filename.split('/')[-1].split('_')
         i = False
@@ -2037,7 +2104,7 @@ class Radar(BaseGSI):
         # ioda_conv_ncio or equivalent to handle the format
 
         # set up output file
-        outname = OutDir+'/'+self.sensor+'_'+self.obstype+'_geoval_'+self.validtime.strftime("%Y%m%d%H")+'.nc4'
+        outname = OutDir+'/'+self.sensor+'_'+self.obstype+'_geoval_'+self.validtime.strftime("%Y%m%d%H")+'.nc'
         if not clobber:
             if (os.path.exists(outname)):
                 print("File exists. Skipping and not overwriting: %s" % outname)
@@ -2085,14 +2152,14 @@ class Radar(BaseGSI):
         to the JEDI/IODA observation format
         """
         # set up a NcWriter class
-        outname = OutDir+'/'+self.sensor+'_'+self.obstype+'_obs_'+self.validtime.strftime("%Y%m%d%H")+'.nc4'
+        outname = OutDir+'/'+self.sensor+'_'+self.obstype+'_obs_'+self.validtime.strftime("%Y%m%d%H")+'.nc'
         if not clobber:
             if (os.path.exists(outname)):
                 print("File exists. Skipping and not overwriting:%s" % outname)
                 return
         LocKeyList = []
         LocVars = []
-        globalAttrs = {}
+        self.globalAttrs = {}
         varDict = defaultdict(lambda: defaultdict(dict))
         outdata = defaultdict(lambda: DefaultOrderedDict(OrderedDict))
         varAttrs = DefaultOrderedDict(lambda: DefaultOrderedDict(dict))
@@ -2118,7 +2185,7 @@ class Radar(BaseGSI):
             varDict[value]['valKey'] = value, iconv.OvalName()
             varDict[value]['errKey'] = value, iconv.OerrName()
             varDict[value]['qcKey'] = value, iconv.OqcName()
-            VarDims[value] = ['Location']
+            self.VarDims[value] = ['Location']
             varAttrs[varDict[value]['valKey']]['units'] = myunits
             varAttrs[varDict[value]['errKey']]['units'] = myunits
             varAttrs[varDict[value]['qcKey']]['units'] = 'unitless'
@@ -2170,13 +2237,13 @@ class Radar(BaseGSI):
                 if loc_mdata_name in units_values.keys():
                     varAttrs[(loc_mdata_name, 'MetaData')]['units'] = units_values[loc_mdata_name]
 
-        globalAttrs["sensor"] = self.sensor
+        self.globalAttrs["sensor"] = self.sensor
 
         # set dimension lengths in the writer since we are bypassing
         # ExtractObsData
-        DimDict['Location'] = nlocs
+        self.DimDict['Location'] = nlocs
 
-        writer = iconv.IodaWriter(outname, LocKeyList, DimDict)
-        writer.BuildIoda(outdata, VarDims, varAttrs, globalAttrs)
+        writer = iconv.IodaWriter(outname, LocKeyList, self.DimDict)
+        writer.BuildIoda(outdata, self.VarDims, varAttrs, self.globalAttrs)
 
         print("Radar obs processed, wrote to: %s" % outname)

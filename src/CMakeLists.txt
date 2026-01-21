@@ -7,7 +7,5 @@ if ( oops_FOUND )
   add_subdirectory( ioda-dump )
   if( "$ENV{BUILD_IODA_CONVERTERS}" STREQUAL "NO" )   #don't add this if iodaconv is being built
     add_subdirectory(gsi_varbc)
-endif()
-if ( BUILD_REGRID_STATES )
-  add_subdirectory( regridStates )
+  add_subdirectory( add_increment )
 endif()
