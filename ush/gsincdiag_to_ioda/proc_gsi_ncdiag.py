@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import gsincdiag_to_ioda.gsi_ncdiag as gsid
-
+import gsi_ncdiag as gsid
 
 def run_conv_obs(convfile, outdir, platforms, TotalBias=False):
     print("Processing:"+str(convfile))
